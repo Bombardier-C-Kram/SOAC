@@ -2,18 +2,17 @@ test;config;client;callbackUrl;params;authUrl;result;code;tokenResult
 ⍝ Create OAuth client
 config←(
     client: (
-        id: 'YOUR_CLIENT_ID'
-        secret: 'YOUR_CLIENT_SECRET'
+        id: 'soac-testing'
+        secret: 'pxwxRBf2xJ1MX9JWjiJVGg4PjnYejkHv'
         usePKCE: 1
         flow: 'authorizationCode'
     )
     auth: (
-        authUrl: 'https://auth.example.com/oauth/authorize'
-        tokenUrl: 'https://auth.example.com/oauth/token'
-        deviceUrl: 'https://auth.example.com/oauth/device'
+        authUrl: 'https://id.axidstudios.com/realms/master/protocol/openid-connect/auth'
+        tokenUrl: 'https://id.axidstudios.com/realms/master/protocol/openid-connect/token'
     )
 )
-client ← SOAC.New config
+client ← ##.SOAC.New config
 
 ⍝ Start temp jarvis server
 callbackUrl←client.LaunchCallbackServer 3000 ⍝ Starts Jarvis server on port 3000

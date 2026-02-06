@@ -1,0 +1,215 @@
+:Namespace TestRunner
+⍝ Simple test framework for SOAC
+⍝ Provides test execution, error handling, and result reporting
+
+    ∇ r←RunTests tests;test;results;passed;failed;errors;name;fn;result
+      ⍝ Run a collection of test functions
+      ⍝ Arguments:
+      ⍝   tests - Namespace containing test functions (names starting with 'test')
+      ⍝ Returns:
+      ⍝   Namespace with results summary
+
+      results←⎕NS''
+      results.tests←⍬
+      passed←0
+      failed←0
+      errors←⍬
+
+      ⍝ Get all test function names
+      :If 0=⎕NC'tests'
+          ⎕←'Error: tests namespace not provided'
+          r←results
+          →0
+      :EndIf
+
+      ⎕←''
+      ⎕←'Running tests...'
+      ⎕←'═'⍴⍨60
+
+      ⍝ Execute each test
+      :For name :In tests.⎕NL ¯3
+          :If 'test'≡4↑name
+              ⎕←'Running: ',name
+              result←RunSingleTest tests name
+              results.tests,←⊂result
+              :If result.passed
+                  passed+←1
+                  ⎕←'  ✓ PASS'
+              :Else
+                  failed+←1
+                  ⎕←'  ✗ FAIL: ',result.error
+              :EndIf
+              ⎕←''
+          :EndIf
+      :EndFor
+
+      ⍝ Print summary
+      ⎕←'═'⍴⍨60
+      ⎕←'Test Summary:'
+      ⎕←'  Total:  ',⍕passed+failed
+      ⎕←'  Passed: ',⍕passed,' (',⍕(100×passed÷0.01+passed+failed),'%)'
+      ⎕←'  Failed: ',⍕failed
+      ⎕←''
+
+      results.passed←passed
+      results.failed←failed
+      results.total←passed+failed
+      results.success←failed=0
+      r←results
+    ∇
+
+    ∇ r←RunSingleTest(ns name);fn;result;err
+      ⍝ Run a single test function with error handling
+      ⍝ Arguments:
+      ⍝   ns - Namespace containing test function
+      ⍝   name - Name of test function to run
+      ⍝ Returns:
+      ⍝   Namespace with test result
+
+      r←⎕NS''
+      r.name←name
+      r.passed←0
+      r.error←''
+
+      :Trap 0
+          fn←ns⍎name
+          result←fn ⍬
+          :If result
+              r.passed←1
+          :Else
+              r.error←'Test returned false'
+          :EndIf
+      :Else
+          r.error←'Error ',⍕⎕EN,': ',⊃⎕DM
+      :EndTrap
+    ∇
+
+    ∇ r←Assert condition;msg
+      ⍝ Assert that condition is true
+      ⍝ Arguments:
+      ⍝   condition - Boolean value to test
+      ⍝   msg - Optional error message
+      ⍝ Returns:
+      ⍝   1 if condition is true, signals error otherwise
+
+      :If 0=⎕NC'condition'
+          ⎕SIGNAL⊂('EN' 11)('Message' 'Assert: condition not provided')
+      :EndIf
+
+      :If ~condition
+          msg←⎕VGET⊂'msg' 'Assertion failed'
+          ⎕SIGNAL⊂('EN' 11)('Message' msg)
+      :EndIf
+
+      r←1
+    ∇
+
+    ∇ r←AssertEqual(actual expected);msg
+      ⍝ Assert that actual equals expected
+      ⍝ Arguments:
+      ⍝   actual - Actual value
+      ⍝   expected - Expected value
+      ⍝ Returns:
+      ⍝   1 if equal, signals error otherwise
+
+      :If ~actual≡expected
+          msg←'AssertEqual failed: expected ',⍕expected,' but got ',⍕actual
+          ⎕SIGNAL⊂('EN' 11)('Message' msg)
+      :EndIf
+
+      r←1
+    ∇
+
+    ∇ r←AssertNotEqual(actual expected);msg
+      ⍝ Assert that actual does not equal expected
+      ⍝ Arguments:
+      ⍝   actual - Actual value
+      ⍝   expected - Value that should not match
+      ⍝ Returns:
+      ⍝   1 if not equal, signals error otherwise
+
+      :If actual≡expected
+          msg←'AssertNotEqual failed: values are equal: ',⍕actual
+          ⎕SIGNAL⊂('EN' 11)('Message' msg)
+      :EndIf
+
+      r←1
+    ∇
+
+    ∇ r←AssertSuccess ns;msg
+      ⍝ Assert that namespace has success=1
+      ⍝ Arguments:
+      ⍝   ns - Namespace to check
+      ⍝ Returns:
+      ⍝   1 if ns.success=1, signals error otherwise
+
+      :If 0=ns.⎕NC'success'
+          msg←'AssertSuccess: namespace does not have success field'
+          ⎕SIGNAL⊂('EN' 11)('Message' msg)
+      :EndIf
+
+      :If ~ns.success
+          msg←'AssertSuccess failed: success=0'
+          :If 0≠ns.⎕NC'error_description'
+              msg,←' (',ns.error_description,')'
+          :EndIf
+          ⎕SIGNAL⊂('EN' 11)('Message' msg)
+      :EndIf
+
+      r←1
+    ∇
+
+    ∇ r←AssertFail ns;msg
+      ⍝ Assert that namespace has success=0
+      ⍝ Arguments:
+      ⍝   ns - Namespace to check
+      ⍝ Returns:
+      ⍝   1 if ns.success=0, signals error otherwise
+
+      :If 0=ns.⎕NC'success'
+          msg←'AssertFail: namespace does not have success field'
+          ⎕SIGNAL⊂('EN' 11)('Message' msg)
+      :EndIf
+
+      :If ns.success
+          msg←'AssertFail failed: expected failure but got success'
+          ⎕SIGNAL⊂('EN' 11)('Message' msg)
+      :EndIf
+
+      r←1
+    ∇
+
+    ∇ r←AssertContains(str substr);msg
+      ⍝ Assert that string contains substring
+      ⍝ Arguments:
+      ⍝   str - String to search in
+      ⍝   substr - Substring to find
+      ⍝ Returns:
+      ⍝   1 if substr found in str, signals error otherwise
+
+      :If 0=≢substr⍷str
+          msg←'AssertContains failed: "',substr,'" not found in "',str,'"'
+          ⎕SIGNAL⊂('EN' 11)('Message' msg)
+      :EndIf
+
+      r←1
+    ∇
+
+    ∇ r←AssertType(value type);msg;actualType
+      ⍝ Assert that value has expected type
+      ⍝ Arguments:
+      ⍝   value - Value to check
+      ⍝   type - Expected type code (2=char, 9=namespace, etc.)
+      ⍝ Returns:
+      ⍝   1 if type matches, signals error otherwise
+
+      actualType←⊃⎕NC'value'
+      :If actualType≠type
+          msg←'AssertType failed: expected type ',⍕type,' but got ',⍕actualType
+          ⎕SIGNAL⊂('EN' 11)('Message' msg)
+      :EndIf
+
+      r←1
+    ∇
+
+:EndNamespace

@@ -1,0 +1,32 @@
+# APL credentials - NEVER commit these!
+APLSource/tests/credentials.apla
+APLSource/tests/credentials*.apla
+**/credentials.apla
+**/credentials*.apla
+*.credentials.*
+.env
+.env.*
+secrets.*
+
+# APL workspaces
+*.dws
+*.ws
+
+# OS files
+.DS_Store
+Thumbs.db
+__pycache__/
+*.tmp
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Build artifacts
+dist/
+build/
+*.pyc
