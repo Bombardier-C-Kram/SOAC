@@ -1,0 +1,75 @@
+:Namespace CommonProviders
+⍝ Pre-configured OAuth provider settings for common services
+
+    ∇ r←GitHub flow
+      ⍝ GitHub OAuth configuration
+      ⍝ Arguments:
+      ⍝   flow - 'authorizationCode' or 'deviceCode'
+      ⍝ Returns namespace with authUrl, tokenUrl, and recommended settings
+      ⍝ User must add: clientId, clientSecret
+      :If ~(⊂flow)∊'authorizationCode' 'deviceCode'
+          ⎕SIGNAL ⊂('EN' 11) ('Message' 'flow must be authorizationCode or deviceCode')
+      :EndIf
+      r←(
+          authUrl: 'https://github.com/login/oauth/authorize'
+          tokenUrl: 'https://github.com/login/oauth/access_token'
+          deviceUrl: 'https://github.com/login/device/code'
+          flow: flow
+          usePKCE: 1
+      )
+    ∇
+
+    ∇ r←Google flow
+      ⍝ Google OAuth configuration
+      ⍝ Arguments:
+      ⍝   flow - 'authorizationCode' or 'deviceCode'
+      ⍝ Returns namespace with URLs and recommended settings
+      ⍝ User must add: clientId, clientSecret
+      :If ~(⊂flow)∊'authorizationCode' 'deviceCode'
+          ⎕SIGNAL ⊂('EN' 11) ('Message' 'flow must be authorizationCode or deviceCode')
+      :EndIf
+      r←(
+          authUrl: 'https://accounts.google.com/o/oauth2/v2/auth'
+          tokenUrl: 'https://oauth2.googleapis.com/token'
+          deviceUrl: 'https://oauth2.googleapis.com/device/code'
+          flow: flow
+          usePKCE: 1
+      )
+    ∇
+
+    ∇ r←Microsoft flow
+      ⍝ Microsoft OAuth configuration (Azure AD v2.0)
+      ⍝ Arguments:
+      ⍝   flow - 'authorizationCode' or 'deviceCode'
+      ⍝ Returns namespace with URLs and recommended settings
+      ⍝ User must add: clientId, clientSecret (or tenant-specific URLs)
+      :If ~(⊂flow)∊'authorizationCode' 'deviceCode'
+          ⎕SIGNAL ⊂('EN' 11) ('Message' 'flow must be authorizationCode or deviceCode')
+      :EndIf
+      r←(
+          authUrl: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize'
+          tokenUrl: 'https://login.microsoftonline.com/common/oauth2/v2.0/token'
+          deviceUrl: 'https://login.microsoftonline.com/common/oauth2/v2.0/devicecode'
+          flow: flow
+          usePKCE: 1
+      )
+    ∇
+
+    ∇ r←Auth0 domain
+      ⍝ Auth0 OAuth configuration
+      ⍝ Arguments:
+      ⍝   domain - Your Auth0 domain (e.g., 'myapp.auth0.com' or 'myapp.us.auth0.com')
+      ⍝ Returns namespace with URLs and recommended settings
+      ⍝ User must add: clientId, clientSecret
+      :If 0=≢domain
+          ⎕SIGNAL ⊂('EN' 11) ('Message' 'Auth0 domain is required')
+      :EndIf
+      r←(
+          authUrl: ('https://',domain,'/authorize')
+          tokenUrl: ('https://',domain,'/oauth/token')
+          flow: 'authorizationCode'
+          usePKCE: 1
+      )
+    ∇
+
+:EndNamespace

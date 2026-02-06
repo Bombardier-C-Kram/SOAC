@@ -21,7 +21,6 @@ This project is currently in development. Core functionality is implemented but 
 - Client Credentials flow
 - Token refresh logic
 - JWT parsing and validation
-- Provider convenience helpers (Google, Microsoft, Auth0, etc.)
 - Comprehensive documentation and examples
 - Error handling improvements
 
@@ -38,37 +37,29 @@ This project is currently in development. Core functionality is implemented but 
 ### Authorization Code Flow with GitHub
 
 ```apl
-⍝ Create OAuth client
-config←(
-    client: (
-        id: 'YOUR_GITHUB_CLIENT_ID'
-        secret: 'YOUR_GITHUB_CLIENT_SECRET'
-    )
-    auth: (
-        authUrl: 'https://github.com/login/oauth/authorize'
-        tokenUrl: 'https://github.com/login/oauth/access_token'
-    )
-)
+⍝ Create OAuth client using CommonProviders
+config←CommonProviders.GitHub
+config.clientId←'YOUR_GITHUB_CLIENT_ID'
+config.clientSecret←'YOUR_GITHUB_CLIENT_SECRET'
 client ← SOAC.New config
 
 ⍝ Start temporary callback server
-callbackUrl←client.LaunchCallbackServer 3000
+callbackUrl←client.StartCallbackServer 3000
 
-⍝ Generate authorization URL
+⍝ Generate authorization URL (returns namespace with url and state)
 params←(
     redirectUri: callbackUrl
     scope: 'read:user'
 )
-authUrl ← client.AuthorizeURL params
+authResult ← client.GetAuthorizationURL params
 
 ⍝ Launch browser and wait for callback
-client.LaunchURL authUrl
-result ← client.AwaitCallback
+client.LaunchURL authResult.url
+result ← client.WaitForCallback
 
-⍝ Exchange code for token
+⍝ Exchange code for token (using namespace arguments)
 :If result.success
-    code ← result.code
-    tokenResult ← client.GetToken code callbackUrl
+    tokenResult ← client.GetToken (code: result.code ⋄ redirectUri: callbackUrl)
 
     :If tokenResult.success
         ⎕ ← 'Access Token: ', tokenResult.access_token
@@ -83,29 +74,30 @@ result ← client.AwaitCallback
 ### Device Code Flow
 
 ```apl
-⍝ Create OAuth client for device flow
-config←(
-    client: (
-        id: 'YOUR_CLIENT_ID'
-        secret: 'YOUR_CLIENT_SECRET'
-        flow: 'deviceCode'
-    )
-    auth: (
-        deviceUrl: 'https://provider.com/device/code'
-        tokenUrl: 'https://provider.com/oauth/token'
-    )
-)
+⍝ Create OAuth client for device flow using CommonProviders
+config←CommonProviders.Google 'deviceCode'
+config.clientId←'YOUR_CLIENT_ID'
+config.clientSecret←'YOUR_CLIENT_SECRET'
 client ← SOAC.New config
 
-⍝ Initiate device flow
-result ← client.InitiateDeviceFlow (scope: 'openid' 'profile')
+⍝ Start device flow
+result ← client.StartDeviceFlow (scope: 'openid' 'profile')
 
 :If result.success
     ⎕ ← 'Visit: ', result.verification_uri
     ⎕ ← 'Enter code: ', result.user_code
 
-    ⍝ Poll for token
-    tokenResult ← client.PollForToken ()
+    ⍝ Wait for token
+    tokenResult ← client.WaitForToken (
+        deviceCode: result.device_code
+        interval: result.interval
+    )
+
+    :If tokenResult.success
+        ⎕ ← 'Access Token: ', tokenResult.access_token
+    :Else
+        ⎕ ← 'Token error: ', tokenResult.error_description
+    :EndIf
 :EndIf
 ```
 
@@ -119,22 +111,49 @@ result ← client.InitiateDeviceFlow (scope: 'openid' 'profile')
 
 ## Configuration
 
-SOAC clients are configured using namespaces with the following structure:
+SOAC clients are configured using flat namespaces with the following structure:
 
 ```apl
 config←(
-    client: (
-        id: 'your-client-id'          ⍝ Required
-        secret: 'your-client-secret'  ⍝ Optional for PKCE
-        usePKCE: 1                    ⍝ Enable PKCE (default: 1 for authCode, 0 otherwise)
-        flow: 'authorizationCode'     ⍝ Options: 'authorizationCode', 'deviceCode', 'clientCredentials'
-    )
-    auth: (
-        authUrl: 'https://...'        ⍝ Authorization endpoint
-        tokenUrl: 'https://...'       ⍝ Token endpoint
-        deviceUrl: 'https://...'      ⍝ Device authorization endpoint (for device flow)
-    )
+    clientId: 'your-client-id'        ⍝ Required
+    clientSecret: 'your-client-secret' ⍝ Optional for PKCE
+    usePKCE: 1                        ⍝ Enable PKCE (default: 1 for authCode, 0 otherwise)
+    flow: 'authorizationCode'         ⍝ Options: 'authorizationCode', 'deviceCode', 'clientCredentials'
+    authUrl: 'https://...'            ⍝ Authorization endpoint
+    tokenUrl: 'https://...'           ⍝ Token endpoint
+    deviceUrl: 'https://...'          ⍝ Device authorization endpoint (for device flow)
 )
+```
+
+### Using CommonProviders
+
+For common OAuth providers, use the pre-configured helpers:
+
+```apl
+⍝ GitHub
+config←CommonProviders.GitHub
+config.clientId←'your-id'
+config.clientSecret←'your-secret'
+
+⍝ Google (authorization code flow)
+config←CommonProviders.Google 'authorizationCode'
+config.clientId←'your-id'
+config.clientSecret←'your-secret'
+
+⍝ Google (device code flow)
+config←CommonProviders.Google 'deviceCode'
+config.clientId←'your-id'
+config.clientSecret←'your-secret'
+
+⍝ Microsoft
+config←CommonProviders.Microsoft 'authorizationCode'
+config.clientId←'your-id'
+config.clientSecret←'your-secret'
+
+⍝ Auth0 (requires domain)
+config←CommonProviders.Auth0 'myapp.auth0.com'
+config.clientId←'your-id'
+config.clientSecret←'your-secret'
 ```
 
 ## API Reference
@@ -145,23 +164,34 @@ config←(
 ### Methods
 
 #### Authorization Code Flow
-- `AuthorizeURL args` - Generate authorization URL with PKCE support
-- `LaunchCallbackServer port` - Start local server to receive OAuth callback
-- `AwaitCallback` - Wait for OAuth callback (with 5-minute timeout)
+- `GetAuthorizationURL args` - Generate authorization URL with PKCE support
+  - Returns: `{url: 'https://...' state: 'uuid'}`
+- `StartCallbackServer port` - Start local server to receive OAuth callback
+  - Returns: callback URL string
+- `WaitForCallback` - Wait for OAuth callback (with 5-minute timeout)
+  - Returns: `{success: 1 code: '...' state: '...'}` or error
 - `LaunchURL url` - Open URL in system default browser
 - `GetToken args` - Exchange authorization code for access token
+  - Arguments: `(code: 'auth_code' ⋄ redirectUri: 'callback_url')`
+  - Returns: `{success: 1 access_token: '...' ...}` or error
 
 #### Device Code Flow
-- `InitiateDeviceFlow args` - Start device authorization flow
-- `PollForToken args` - Poll for token completion (WIP)
+- `StartDeviceFlow args` - Start device authorization flow
+  - Arguments: `(scope: 'openid' 'profile')`
+  - Returns: `{success: 1 device_code: '...' user_code: '...' verification_uri: '...' interval: N}`
+- `WaitForToken args` - Wait for token completion
+  - Arguments: `(deviceCode: 'device_code' ⋄ interval: N)`
+  - Returns: `{success: 1 access_token: '...' ...}` or error
 
 #### Utilities
 - `ParseUrl url` - Parse URL query parameters into namespace
 - `GetState` - Retrieve the current state value (for CSRF validation)
 
-### Shared Methods
-- `sha256 data` - SHA-256 hash (used for PKCE)
-- `hmacsha256 data` - HMAC-SHA256 (utility)
+### CommonProviders
+- `CommonProviders.GitHub` - GitHub OAuth configuration
+- `CommonProviders.Google flow` - Google OAuth configuration (authorizationCode or deviceCode)
+- `CommonProviders.Microsoft flow` - Microsoft OAuth configuration (authorizationCode or deviceCode)
+- `CommonProviders.Auth0 domain` - Auth0 OAuth configuration
 
 ## Security Features
 
@@ -176,20 +206,20 @@ All methods that can fail return namespaces with a consistent structure:
 
 **Success:**
 ```apl
-{
+(
   success: 1
-  [... response data ...]
-}
+  ⍝... response data ...⍝
+)
 ```
 
 **Error:**
 ```apl
-{
+(
   success: 0
   error: 'error_code'
   error_description: 'Human-readable description'
-  [... additional context ...]
-}
+  ⍝... additional context ...⍝
+)
 ```
 
 ## Dependencies

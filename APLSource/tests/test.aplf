@@ -1,48 +1,38 @@
-test;config;client;callbackUrl;params;authUrl;result;code;tokenResult
-⍝ Create OAuth client
+test;config;client;callbackUrl;params;authResult;result;tokenResult
+⍝ Create OAuth client (using flat configuration structure)
 config←(
-    client: (
-        id: 'soac-testing'
-        secret: 'pxwxRBf2xJ1MX9JWjiJVGg4PjnYejkHv'
-        usePKCE: 1
-        flow: 'authorizationCode'
-    )
-    auth: (
-        authUrl: 'https://id.axidstudios.com/realms/master/protocol/openid-connect/auth'
-        tokenUrl: 'https://id.axidstudios.com/realms/master/protocol/openid-connect/token'
-    )
+    usePKCE: 1
+    flow: 'authorizationCode'
 )
+config ⎕NS credentials.custom
 client ← ##.SOAC.New config
 
 ⍝ Start temp jarvis server
-callbackUrl←client.LaunchCallbackServer 3000 ⍝ Starts Jarvis server on port 3000
+callbackUrl←client.StartCallbackServer 3000 ⍝ Starts Jarvis server on port 3000
 
 ⍝ Generate authorization URL
 params←(
     redirectUri: callbackUrl
     scope: 'email' 'profile'
-    ⍝state: '' ⍝ Optional state parameter
     custom: (
         ⍝ Custom params to be passed (Will not be parsed)
     )
 )
-authUrl ← client.AuthorizeURL params
+authResult ← client.GetAuthorizationURL params
 
 ⍝ Show URL to user
-⎕ ← 'Please visit: ', authUrl
+⎕ ← 'Please visit: ', authResult.url
 
 ⍝ wait for code
-client.LaunchURL authUrl
-result ← client.AwaitCallback ⍝ Waits until callback received. Autostops the Jarvis server
+client.LaunchURL authResult.url
+result ← client.WaitForCallback ⍝ Waits until callback received. Autostops the Jarvis server
 
 
 
 ⍝ Check if successful
 :If result.success
-    code ← result.code
-
-    ⍝ Exchange code for token
-    tokenResult ← client.GetToken code callbackUrl
+    ⍝ Exchange code for token (using namespace arguments)
+    tokenResult ← client.GetToken (code: result.code ⋄ redirectUri: callbackUrl)
 
     :If tokenResult.success
         ⎕ ← 'Access Token: ', tokenResult.access_token

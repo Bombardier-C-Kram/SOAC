@@ -1,19 +1,12 @@
-ghtest;config;client;callbackUrl;params;authUrl;result;code;tokenResult
-⍝ Create OAuth client
-config←(
-    client: (
-        id: 'YOUR_GITHUB_CLIENT_ID'
-        secret: 'YOUR_GITHUB_CLIENT_SECRET'
-    )
-    auth: (
-        authUrl: 'https://github.com/login/oauth/authorize'
-        tokenUrl: 'https://github.com/login/oauth/access_token'
-    )
-)
+ghtest;config;client;callbackUrl;params;authResult;result;tokenResult
+⍝ Create OAuth client using CommonProviders
+config←CommonProviders.GitHub 'authorizationCode'
+config.clientId←credentials.github.clientId
+config.clientSecret←credentials.github.clientSecret
 client ← SOAC.New config
 
 ⍝ Start temp jarvis server
-callbackUrl←client.LaunchCallbackServer 3000 ⍝ Starts Jarvis server on port 3000
+callbackUrl←client.StartCallbackServer 3000 ⍝ Starts Jarvis server on port 3000
 
 ⍝ Generate authorization URL
 params←(
@@ -23,23 +16,21 @@ params←(
         ⍝ Custom params to be passed (Will not be parsed)
     )
 )
-authUrl ← client.AuthorizeURL params 
+authResult ← client.GetAuthorizationURL params
 
 ⍝ Show URL to user
-⎕ ← 'Please visit: ', authUrl
+⎕ ← 'Please visit: ', authResult.url
 
 ⍝ wait for code
-client.LaunchURL authUrl
-result ← client.AwaitCallback ⍝ Waits until callback received. Autostops the Jarvis server
+client.LaunchURL authResult.url
+result ← client.WaitForCallback ⍝ Waits until callback received. Autostops the Jarvis server
 
 
 
 ⍝ Check if successful
 :If result.success
-    code ← result.code
-
-    ⍝ Exchange code for token
-    tokenResult ← client.GetToken code callbackUrl
+    ⍝ Exchange code for token (using namespace arguments)
+    tokenResult ← client.GetToken (code: result.code ⋄ redirectUri: callbackUrl)
 
     :If tokenResult.success
         ⎕ ← 'Access Token: ', tokenResult.access_token

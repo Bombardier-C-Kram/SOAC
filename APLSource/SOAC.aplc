@@ -46,8 +46,8 @@
     :field HttpCommand        ⍝ Reference to HttpCommand utility for HTTP operations
     :field Jarvis             ⍝ Reference to Jarvis web server framework
     :field public j           ⍝ Jarvis instance for callback server
-    :field public trg         ⍝ Thread-safe callback target for OAuth responses
-    ⎕RL←(⍬ 2)                 ⍝ Initialize random number generator with thread-safe setting
+    :field public trg         ⍝ Thread range for callback target for OAuth responses
+    ⎕RL←(⍬ 2)                 ⍝ Initialize random number generator (Use OS Random Generator)
 
     ∇ r←New args
       ⍝ Create a new SOAC OAuth client instance
@@ -67,31 +67,53 @@
       :EndIf
     ∇
 
-    ∇ make1 args;vars
+    ∇ make1 args;vars;upgradeResp;_
       ⍝ Constructor: Initialize OAuth client with configuration
       ⍝ Validates flow type, sets up PKCE if enabled, loads dependencies
       :Access public
       :Implements constructor
-      ⍝ Extract nested client and auth namespaces from config (with empty defaults)
-      args.(client auth)←args ⎕VGET (↑'client' 'auth') ()
 
-      ⍝ Determine OAuth flow type (default: authorizationCode)
-      flow←args.client ⎕VGET ⊂'flow' 'authorizationCode'
+      :If 0=#.⎕NC 'HttpCommand'
+        #.HttpCommand←#.{⎕SE.SALT.Load 'HttpCommand'}⍬
+        HttpCommand←#.HttpCommand
+        upgradeResp←HttpCommand.Upgrade
+        :If 1=⊃upgradeResp
+          Log 'Upgraded HttpCommand: ',2⊃upgradeResp
+        :ElseIf 0=⊃upgradeResp
+          Log 'HttpCommand is on latest version: ',⍕HttpCommand.Version
+        :Else
+          Log 'Unable to upgrade HttpCommand: ',2⊃upgradeResp
+        :EndIf
+      :Else
+        HttpCommand←#.HttpCommand
+      :EndIf
+
+      :If 0=#.⎕NC 'Jarvis'
+        _←HttpCommand.Fix 'github/Dyalog/Jarvis/Source/Jarvis.dyalog' #
+      :EndIf
+
+      ⍝ Extract configuration from flat namespace
+      flow←args ⎕VGET ⊂'flow' 'authorizationCode'
       :If ~(⊂flow)∊'authorizationCode' 'deviceCode' 'clientCredentials'
         ⎕SIGNAL ⊂('EN' 11) ('Message' 'Invalid flow specified')
         →0
       :EndIf
+
       :If flow≡'authorizationCode'
-        usePKCE←args.client ⎕VGET ⊂'usePKCE' 1 
+        usePKCE←args ⎕VGET ⊂'usePKCE' 1
       :Else
-        usePKCE←args.client ⎕VGET ⊂'usePKCE' 0
+        usePKCE←args ⎕VGET ⊂'usePKCE' 0
       :EndIf
       :If ~(∨/0 1∘∊)usePKCE
         ⎕SIGNAL ⊂('EN' 11) ('Message' 'usePKCE must be boolean')
       :EndIf
 
-      clientId clientSecret←args.client ⎕VGET (↑'id' 'secret') (⊂'')
-      authUrl tokenUrl deviceUrl←args.auth ⎕VGET (↑'authUrl' 'tokenUrl' 'deviceUrl') (⊂'')
+      clientId←args ⎕VGET 'clientId'
+      clientSecret←args ⎕VGET ⊂'clientSecret' ''
+      authUrl←args ⎕VGET ⊂'authUrl' ''
+      tokenUrl←args ⎕VGET ⊂'tokenUrl' ''
+      deviceUrl←args ⎕VGET ⊂'deviceUrl' ''
+
       Jarvis←##.Jarvis
       HttpCommand←##.HttpCommand
       j←Jarvis.New''
@@ -104,7 +126,7 @@
       :EndTrap
     ∇
 
-    ∇ r←AuthorizeURL args;params
+    ∇ r←GetAuthorizationURL args;params;url
       ⍝ Generate OAuth authorization URL with PKCE support
       ⍝
       ⍝ Arguments:
@@ -114,8 +136,8 @@
       ⍝   args.custom - (optional) Additional custom parameters
       ⍝
       ⍝ Returns:
-      ⍝   Authorization URL string with encoded parameters
-      ⍝   State is stored internally and can be retrieved with GetState
+      ⍝   Namespace with authorization URL and state:
+      ⍝   {url: 'https://...' state: 'generated-uuid'}
       :Access public
       ValidateFlow 'authorizationCode'
       params←(
@@ -144,11 +166,14 @@
       params.scope←NormalizeScope params.scope
 
       params ⎕NS ⎕VGET⊂'custom'()
-      r←authUrl,'?',HttpCommand.UrlEncode params
+      url←authUrl,'?',HttpCommand.UrlEncode params
+
+      ⍝ Return namespace with URL and state
+      r←(url: url ⋄ state: state)
     ∇
 
-    ∇ r←InitiateDeviceFlow args
-      ⍝ Initiate OAuth device authorization flow
+    ∇ r←StartDeviceFlow args
+      ⍝ Start OAuth device authorization flow
       ⍝
       ⍝ Arguments:
       ⍝   args.scope - Space-separated string or array of scope values
@@ -193,8 +218,8 @@
       r←ProcessHttpResponse h
     ∇
 
-    ∇ r←PollForToken args;interval;deviceCode;maxAttempts;attempt
-      ⍝ Poll for token completion in device authorization flow
+    ∇ r←WaitForToken args;interval;deviceCode;maxAttempts;attempt
+      ⍝ Wait for token completion in device authorization flow
       ⍝
       ⍝ Arguments:
       ⍝   args.deviceCode - Device code from InitiateDeviceFlow
@@ -326,17 +351,12 @@
       :EndIf
     ∇
 
-    ∇ r←GetToken args;code;redirectUri;params;h
+    ∇ r←GetToken args;code;deviceCode;redirectUri;params;h
       ⍝ Exchange authorization code or device code for access token
       ⍝
-      ⍝ Arguments (polymorphic):
-      ⍝   For authorization code flow:
-      ⍝     - Namespace: (code: 'auth_code' ⋄ redirectUri: 'callback_url')
-      ⍝     - String: authorization code (requires redirectUri as second arg)
-      ⍝     - Vector: (code redirectUri)
-      ⍝   For device code flow:
-      ⍝     - Namespace: (code: 'device_code')
-      ⍝     - String: device code
+      ⍝ Arguments:
+      ⍝   For authorization code flow: (code: 'auth_code' ⋄ redirectUri: 'callback_url')
+      ⍝   For device code flow: (deviceCode: 'device_code')
       ⍝
       ⍝ Returns:
       ⍝   Namespace with token or error:
@@ -345,21 +365,29 @@
       :Access public
 
       :Section Parse Arguments
-      ⍝ Parse polymorphic arguments - supports multiple calling conventions for convenience
-      :Select ⊃⎕NC 'args'
-      :Case 9  ⍝ Namespace: (code: 'x' redirectUri: 'y')
+      ⍝ Validate args is a namespace
+      :If 9≠⊃⎕NC 'args'
+        ⎕SIGNAL ⊂('EN' 11) ('Message' 'GetToken requires namespace argument')
+      :EndIf
+
+      ⍝ Extract parameters based on flow
+      :Select flow
+      :Case 'authorizationCode'
         code←args ⎕VGET 'code'
-        redirectUri←args ⎕VGET ⊂'redirectUri' (⊂'')
-      :Case 2  ⍝ Character vector(s)
-        :If 1≡≡args  ⍝ Simple string: code only (for device flow)
-          code←args
-        :ElseIf (2=≢args)∧(2=≡args)  ⍝ 2-element vector: (code redirectUri)
-          code redirectUri←args
-        :Else
-          ⎕SIGNAL ⊂('EN' 11) ('Message' 'Invalid Args')
+        redirectUri←args ⎕VGET 'redirectUri'
+        :If redirectUri≡''
+          ⎕SIGNAL ⊂('EN' 5) ('Message' 'redirectUri is required for authorization code flow')
         :EndIf
+
+      :Case 'deviceCode'
+        deviceCode←args ⎕VGET 'deviceCode'
+        code←deviceCode  ⍝ Use deviceCode as code for backward compatibility in params
+
+      :Case 'clientCredentials'
+        ⎕SIGNAL ⊂('EN' 11) ('Message' 'clientCredentials flow not yet implemented')
+
       :Else
-        ⎕SIGNAL ⊂('EN' 11) ('Message' 'Invalid Args')
+        ⎕SIGNAL ⊂('EN' 11) ('Message' 'No flow specified')
       :EndSelect
 
       :Section Build HTTP Request
@@ -386,20 +414,11 @@
       :Case 'authorizationCode'
         params.Params.code←code
         params.Params.grant_type←'authorization_code'
-        :If redirectUri≡''
-          ⎕SIGNAL ⊂('EN' 5) ('Message' 'redirectUri must be provided')
-        :EndIf
         params.Params.redirect_uri←redirectUri
 
       :Case 'deviceCode'
         params.Params.device_code←code
         params.Params.grant_type←'urn:ietf:params:oauth:grant-type:device_code'
-
-      :Case 'clientCredentials'
-        ⎕SIGNAL ⊂('EN' 11) ('Message' 'clientCredentials flow not yet implemented')
-
-      :Else
-        ⎕SIGNAL ⊂('EN' 11) ('Message' 'No flow')
       :EndSelect
 
       :If usePKCE
@@ -411,7 +430,7 @@
       r←ProcessHttpResponse h
     ∇
 
-    ∇ cbUrl←LaunchCallbackServer port;cl;jr
+    ∇ cbUrl←StartCallbackServer port;cl;jr
       ⍝ Start local HTTP server to receive OAuth callback
       ⍝
       ⍝ Arguments:
@@ -440,7 +459,7 @@
       cbUrl←'http://localhost:',(⍕port),'/auth'
     ∇
 
-    ∇ r←AwaitCallback;dltid;_
+    ∇ r←WaitForCallback;dltid;_
       ⍝ Wait for OAuth callback from authorization server
       ⍝
       ⍝ Returns:
@@ -560,7 +579,7 @@
 
     ∇ digest←sha256 data;Init;Update;digest;ctx;Digest;dll
       ⍝ Compute SHA-256 hash of data using Conga SSL library
-      ⍝ Derived from hmacsha256 implementation
+      ⍝ Derived from hmacsha256 implementation (In JWTAPL library)
       ⍝ Context (ctx) is 336-byte array for nettle hash state
       :Access public shared
       ⎕IO←0
@@ -574,25 +593,6 @@
 
       ⍝ Execute hash computation: initialize → update with data → get digest
       ctx←Init 336
-      ctx←Update ctx(⍴data)data
-      ctx digest←Digest ctx 32 32
-    ∇
-
-    ∇ digest←key hmacsha256 data;Init;Update;digest;ctx;Digest;dll
-      ⍝ Compute HMAC-SHA256 authentication code using Conga SSL library
-      ⍝ Original implementation from Bjørn and Brian
-      ⍝ Context (ctx) is 336-byte array for nettle HMAC state
-      :Access public shared
-      ⎕IO←0
-      ⍝ Locate Conga SSL shared library in Dyalog installation directory
-      dll←∊1↓⊃1 ⎕NPARTS⊃(⎕NINFO⍠('Wildcard' 1)('Recurse' 1))'/*conga??ssl*.*',⍨(⊢2 ⎕NQ #'GetEnvironment',⊂)'Dyalog'
-      ⍝ Load nettle HMAC-SHA256 functions from DLL via ⎕NA
-      'Init'⎕NA dll,'|nettle_hmac_sha256_set_key >I1[336] U8 <T1[]'    ⍝ Set HMAC key
-      'Update'⎕NA dll,'|nettle_hmac_sha256_update =I1[336] U8 <T1[]'   ⍝ Add data to HMAC
-      'Digest'⎕NA dll,'|nettle_hmac_sha256_digest =I1[336] U8 >I1[32]' ⍝ Finalize and get HMAC
-
-      ⍝ Execute HMAC computation: set key → update with data → get digest
-      ctx←Init(336)(≢key)key
       ctx←Update ctx(⍴data)data
       ctx digest←Digest ctx 32 32
     ∇
