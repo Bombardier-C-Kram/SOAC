@@ -58,7 +58,6 @@ callbackUrl←client.LaunchCallbackServer 3000
 params←(
     redirectUri: callbackUrl
     scope: 'read:user'
-    state: ''
 )
 authUrl ← client.AuthorizeURL params
 
