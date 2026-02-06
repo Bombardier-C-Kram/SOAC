@@ -1,0 +1,452 @@
+:Class SOAC ⍝ Simple OAuth Client
+
+    :field clientId
+    :field clientSecret
+    :field usePKCE
+    :field flow ⍝ 'authorizationCode' 'deviceCode' 'clientCredentials'
+
+    ⍝ Endpoints
+    :field authUrl
+    :field deviceUrl
+    :field tokenUrl
+    
+    :field codeVerifier ⍝ Only set if UsePKCE is set
+    :field state ⍝ Set upon generation of authURL
+    ∇ r←GetState
+      :Access Public
+      r←state
+    ∇
+
+    :field HttpCommand
+    :field Jarvis
+    :field public j
+    :field public trg
+    ⎕RL←(⍬ 2)
+
+    ∇ r←New args
+      :Access public shared
+      :If 0∊⍴args
+          r←##.⎕NEW⊃⊃⎕CLASS ⎕THIS
+      :Else
+          r←##.⎕NEW(⊃⊃⎕CLASS ⎕THIS)args
+      :EndIf
+    ∇
+
+    ∇ make1 args;vars
+      :Access public
+      :Implements constructor
+      args.(client auth)←args ⎕VGET (↑'client' 'auth') ()
+      
+      flow←args.client ⎕VGET ⊂'flow' 'authorizationCode'
+      :If ~(⊂flow)∊'authorizationCode' 'deviceCode' 'clientCredentials'
+        ⎕SIGNAL ⊂('en' 11)('Message' 'Invalid flow specified')
+        →0
+      :EndIf
+      :If flow≡'authorizationCode'
+        usePKCE←args.client ⎕VGET ⊂'usePKCE' 1 
+      :Else
+        usePKCE←args.client ⎕VGET ⊂'usePKCE' 0
+      :EndIf
+      :If ~(∨/0 1∘∊)usePKCE
+        ⎕SIGNAL ⊂('en' 11)('Message' 'usePKCE must be boolean')
+      :EndIf
+
+      clientId clientSecret←args.client ⎕VGET (↑'id' 'secret') (⊂'')
+      authUrl tokenUrl deviceUrl←args.auth ⎕VGET (↑'authUrl' 'tokenUrl' 'deviceUrl') (⊂'')
+      Jarvis←##.Jarvis
+      HttpCommand←##.HttpCommand
+      j←Jarvis.New''
+    ∇
+
+    ∇ destruct;_
+      :Implements destructor
+      :Trap 0
+          _←j.Stop
+      :EndTrap
+    ∇
+
+    ∇ r←AuthorizeURL args;params
+      :Access Public
+      :If flow≢'authorizationCode'
+        ⎕SIGNAL ⊂('EN' 11) ('Message' 'AuthorizeURL is only available in ''authorizationCode'' flow')
+      :EndIf
+      params←(
+          client_id:clientId
+          response_type:'code'
+          redirect_uri:args.redirectUri
+          scope:args.scope
+          state: ⎕VGET⊂'args.state' genState
+      )
+      
+
+      state←params.state
+
+      :If usePKCE
+        codeVerifier←genCodeVerifier
+        params.code_challenge←genCodeChallenge codeVerifier
+        params.code_challenge_method←'S256'        
+      :EndIf
+      
+      :If params.state≡''
+          ⎕SIGNAL ⊂('EN' 5) ('Message' 'state is empty')
+      :EndIf
+
+      :If (⊂≢⊆)params.scope
+          params.scope←1↓∊' ',¨params.scope
+      :EndIf
+
+      params ⎕NS ⎕VGET⊂'custom'()
+      r←authUrl,'?',HttpCommand.UrlEncode params
+    ∇
+
+    ∇ r←InitiateDeviceFlow args
+      :Access public
+      :If flow≢'deviceCode'
+        ⎕SIGNAL ⊂('EN' 11) ('Message' 'InitiateDeviceFlow is only available in ''deviceCode'' flow')
+      :EndIf
+      params←(
+          client_id: clientId
+          client_secret: clientSecret
+          response_type: 'device_code'
+          scope: args.scope
+      )
+      
+
+      state←⊂'null' ⍝ no state - it's device flow
+
+      :If usePKCE ⍝ This isn't standard...
+        ⎕←'WARNING: UsePKCE is NOT standard in device flow'
+        codeVerifier←genCodeVerifier
+        params.code_challenge←genCodeChallenge codeVerifier
+        params.code_challenge_method←'S256'        
+      :EndIf
+
+      :If (⊂≢⊆)params.scope
+          params.scope←1↓∊' ',¨params.scope
+      :EndIf
+
+      httpArgs←(
+        URL: deviceUrl
+        TranslateData: 1
+        Method: 'POST'
+        Params: params
+        ContentType: 'application/x-www-form-urlencoded'
+      )
+
+      r←()
+      h←HttpCommand.Do httpArgs
+      :If 2≠⌊0.01×h.HttpStatus
+          r.success←0
+          r.error_description←'HTTP Error: ',⍕h.HttpStatus
+          →0
+      :EndIf
+      :If 0≠h.Data.⎕NC'error_description'
+          r.success←0
+          r←r ⎕NS h.Data
+      :Else
+          r.success←1
+          r←r ⎕NS h.Data
+      :EndIf
+    ∇
+
+    ∇ r←PollForToken args;interval;deviceCode;maxAttempts;attempt
+      :Access Public
+      :If flow≢'deviceCode'
+        ⎕SIGNAL ⊂('EN' 11) ('Message' 'PollForToken is only available in ''deviceCode'' flow')
+      :EndIf
+
+      ⍝ Extract parameters from args
+      deviceCode←args ⎕VGET 'deviceCode'
+      interval←args ⎕VGET ⊂'interval' 5  ⍝ Default 5 seconds if not provided
+      maxAttempts←args ⎕VGET ⊂'maxAttempts' 300 ⍝ Default to 300 attempts
+
+      attempt←0
+      r←()
+
+      :While attempt≤maxAttempts
+        attempt+←1
+
+        ⍝ Wait before polling (except first attempt)
+        :If attempt>1
+          ⎕DL interval
+        :EndIf
+
+        ⍝ Attempt to get token
+        r←GetToken deviceCode
+
+        ⍝ Check if we got a token successfully
+        :If r.success
+          →0  ⍝ Success - return with token
+        :EndIf
+
+        ⍝ Handle error cases
+        :If 0≠r.⎕NC'error'
+          :Select r.error
+          :Case 'authorization_pending'
+            ⍝ User hasn't authorized yet, continue polling
+          :Case 'slow_down'
+            ⍝ Increase polling interval by 5 seconds
+            interval+←5
+          :Case 'expired_token'
+            ⍝ Device code has expired
+            r.error_description←'Device code expired'
+            →0
+          :Case 'access_denied'
+            ⍝ User denied authorization
+            r.error_description←'User denied authorization'
+            →0
+          :Else
+            ⍝ Unknown error, stop polling
+            →0
+          :EndSelect
+        :Else
+          ⍝ If there's an error_description but no error field, stop
+          →0
+        :EndIf
+      :EndWhile
+
+      ⍝ Max attempts reached
+      :If ~r.success
+        r.success←0
+        r.error←'timeout'
+        r.error_description←'Maximum polling attempts reached'
+      :EndIf
+    ∇
+
+
+    ∇ r←ParseUrl url
+      :Access Public
+      (r←⎕NS'')⎕VSET↓2↑[2]↑'='(≠⊆⊢)¨'&'(≠⊆⊢)HttpCommand.UrlDecode(('?'(⊃∘⍸⍷)⊢)↓⊢)url
+    ∇
+
+    ∇ r←GetToken args;code;redirectUri;params;h
+      :Access Public
+      :Select ⊃⎕NC 'args'
+      :Case 9
+        code←args ⎕VGET 'code'
+        redirectUri←args ⎕VGET ⊂'redirectUri' (⊂'')
+      :Case 2
+        :If 1≡≡args
+          code←args
+        :ElseIf (2=≢args)∧(2=≡args)
+          code redirectUri←args
+        :Else
+          ⎕SIGNAL ⊂('EN' 11)('Message' 'Invalid Args')
+        :EndIf
+      :Else
+        ⎕SIGNAL ⊂('EN' 11)('Message' 'Invalid Args')
+      :EndSelect
+      
+
+      params←(
+          URL: tokenUrl
+          Params:(
+              grant_type:''
+              client_secret: clientSecret
+              client_id:clientId
+          )
+          Method:'POST'
+          ContentType:'application/x-www-form-urlencoded'
+          TranslateData:1
+          Debug:0
+      )
+      
+      :If params.Params.client_secret≡''
+        params.Params.⎕EX 'client_secret'
+      :EndIf
+      :Select flow
+      :Case 'authorizationCode'
+        params.Params.code←code
+        params.Params.grant_type←'authorization_code'
+        :If redirectUri≡''
+          ⎕SIGNAL ⊂('EN' 5)('Message' 'redirectUri must be provided')
+        :EndIf
+        params.Params.redirect_uri←redirectUri
+      :Case 'deviceCode'
+        params.Params.device_code←code
+        params.Params.grant_type←'urn:ietf:params:oauth:grant-type:device_code'
+      :Case 'clientCredentials'
+        ⎕SIGNAL 100
+      :Else 
+        ⎕SIGNAL ⊂('EN' 11)('Message' 'No flow')
+      :EndSelect
+      :If usePKCE
+        params.Params.code_verifier←codeVerifier
+      :EndIf
+      r←()
+      h←HttpCommand.Do params
+      :If 2≠⌊0.01×h.HttpStatus
+          r.success←0
+          r.error_description←'HTTP Error: ',⍕h.HttpStatus
+          :If 0≠≢h.Data
+            r←r ⎕NS h.Data
+          :EndIf
+          →0
+      :EndIf
+      :If 0≠h.Data.⎕NC'error_description'
+          r.success←0
+          r←r ⎕NS h.Data
+      :Else
+          r.success←1
+          r←r ⎕NS h.Data
+      :EndIf
+    ∇
+
+    ∇ cbUrl←LaunchCallbackServer port;cl;jr
+    ⍝ Launch Jarvis
+      :Access Public
+      :If flow≢'authorizationCode'
+        ⎕SIGNAL ⊂('EN' 11) ('Message' 'AuthorizeURL is only available in ''authorizationCode'' flow')
+      :EndIf
+      j.AllowGETs←1
+      j.Port←port
+      j.Paradigm←'REST'
+      (cl←⎕NS'').Get←AuthorizeCallback
+      cl.Post←AuthorizeCallback
+      j.CodeLocation←cl
+      trg←⎕TALLOC 1 'oauthcallback'
+      j.Logging←0
+      j.Debug←1
+      jr←j.Start
+      :If 0≠⊃jr
+          cbUrl←''
+          ⎕SIGNAL⊂('EN' 100)('Message'('Jarvis failed to init: ',2⊃jr))
+      :EndIf
+      cbUrl←'http://localhost:',(⍕port),'/auth'
+    ∇
+
+    ∇ r←AwaitCallback;dltid;_
+      :Access Public
+      :If flow≢'authorizationCode'
+        ⎕SIGNAL ⊂('EN' 11) ('Message' 'AuthorizeURL is only available in ''authorizationCode'' flow')
+      :EndIf
+      dltid←{
+          _←⎕DL 60×5
+          _←(success:0 ⋄ error_description:'timeout reached')⎕TPUT trg+0.1
+      }&⍬
+      r←⎕TGET trg+0.1
+      :If r.success
+          ⎕TKILL dltid
+      :ElseIf ~'timeout reached'≡r.error_description
+          ⎕TKILL dltid
+      :EndIf
+      r←r
+      trg ⎕TALLOC ¯1
+      _←j.Stop
+    ∇
+
+    ∇ r←AuthorizeCallback req;qParams;ns
+      :Access Public
+      :If '/auth'≡req.Endpoint
+          (qParams←())⎕VSET↓req.QueryParams
+          :If (⊂'null')≢qParams ⎕VGET⊂'error'(⊂'null')
+              r←'Error: ',qParams.error_description
+              qParams.success←0
+              qParams ⎕TPUT ##.trg+0.1
+              →0
+          :EndIf
+          (ns←⎕NS'').(code state)←qParams ⎕VGET (↑'code' 'state') (⊂'')
+          :If 0=≢ns.code 
+                ns.success←0
+                ns.error_description←'Code is not set'
+                ns ⎕TPUT ##.trg+0.1
+                r←'Error occured. Try again Later'
+                →0
+          :EndIf
+          :If ~ns.state≡##.GetState
+            ns.success←0
+            ns.error_description←'State validation failed (CSRF protection)'
+            ns ⎕TPUT ##.trg+0.1
+            r←'Error: Invalid state'
+            →0
+          :EndIf
+          ns.success←1
+          ns ⎕TPUT ##.trg+0.1
+          r←'Complete. You may close this page now.'
+      :Else
+          r←'404 not found'
+      :EndIf
+    ∇
+
+    ∇ LaunchURL url;_
+      :Access public shared
+      :Select '-64'~⍨⊃# ⎕WG'APLVersion'
+      :Case 'Windows'
+          _←⎕SHELL'start ''',url,''''
+      :Case 'Linux'
+          _←⎕SHELL'xdg-open "',url,'"'
+      :Case 'Mac'
+          _←⎕SHELL'open "',url,'"'
+      :Else
+          'Bad'⎕SIGNAL 11
+      :EndSelect
+    ∇
+
+    ∇ r←genCodeVerifier;chars
+    ⍝ Generates a cryptographically random string using 
+    ⍝ the characters A-Z, a-z, 0-9, and the punctuation characters -._~ 
+    ⍝ (hyphen, period, underscore, and tilde), between 43 and 128 characters long.
+      chars←⎕A,(⎕c⎕a),⎕d,'-._~'
+      r←chars[(?(43+¯1+?86)/≢)chars]
+    ∇
+
+    ∇ r←genState;chars
+    ⍝ Generates a cryptographically random UUID
+      r←120⌶4
+    ∇
+
+    ∇ r←genCodeChallenge codeVerifier
+      r←base64 sha256 codeVerifier
+    ∇
+
+    ∇ digest←sha256 data;Init;Update;digest;ctx;Digest;dll
+    :Access Public Shared
+    ⍝ Derrived from hmacsha256
+    ⍝ Uses conga ssl shared library.
+    ⍝ ctx is 3×112
+      ⎕IO←0
+      dll←∊1↓⊃1 ⎕NPARTS⊃(⎕NINFO⍠('Wildcard' 1)('Recurse' 1))'/*conga??ssl*.*',⍨(⊢2 ⎕NQ #'GetEnvironment',⊂)'Dyalog'
+      'Init'⎕NA dll,'|nettle_sha256_init >I1[336]'
+      'Update'⎕NA dll,'|nettle_sha256_update =I1[336] U8 <T1[]'
+      'Digest'⎕NA dll,'|nettle_sha256_digest =I1[336] U8 >I1[32]'
+
+      ctx←Init 336
+      ctx←Update ctx(⍴data)data
+      ctx digest←Digest ctx 32 32
+    ∇
+
+    ∇ digest←key hmacsha256 data;Init;Update;digest;ctx;Digest;dll
+    :access public shared
+    ⍝ From Bjørn and Brian.
+    ⍝ Uses conga ssl shared library.
+    ⍝ ctx is 3×112
+      ⎕IO←0
+      dll←∊1↓⊃1 ⎕NPARTS⊃(⎕NINFO⍠('Wildcard' 1)('Recurse' 1))'/*conga??ssl*.*',⍨(⊢2 ⎕NQ #'GetEnvironment',⊂)'Dyalog'
+      'Init'⎕NA dll,'|nettle_hmac_sha256_set_key >I1[336] U8 <T1[]'
+      'Update'⎕NA dll,'|nettle_hmac_sha256_update =I1[336] U8 <T1[]'
+      'Digest'⎕NA dll,'|nettle_hmac_sha256_digest =I1[336] U8 >I1[32]'
+
+      ctx←Init(336)(≢key)key
+      ctx←Update ctx(⍴data)data
+      ctx digest←Digest ctx 32 32
+    ∇
+
+    base64←{⎕IO ⎕ML←0 1             ⍝ Base64 encoding and decoding as used in MIME.
+    ⍝ From Dyalog DFNS
+      chars←'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
+      bits←{,⍉(⍺⍴2)⊤⍵}                   ⍝ encode each element of ⍵ in ⍺ bits,
+                                        ⍝   and catenate them all together
+      part←{((⍴⍵)⍴⍺↑1)⊂⍵}                ⍝ partition ⍵ into chunks of length ⍺
+
+      0=2|⎕DR ⍵:2∘⊥∘(8∘↑)¨8 part{(-8|⍴⍵)↓⍵}6 bits{(⍵≠64)/⍵}chars⍳⍵
+                                        ⍝ decode a string into octets
+
+      four←{                             ⍝ use 4 characters to encode either
+          8=⍴⍵:''∇ ⍵,0 0 0 0           ⍝   1,
+          16=⍴⍵:''∇ ⍵,0 0               ⍝   2
+          chars[2∘⊥¨6 part ⍵],⍺          ⍝   or 3 octets of input
+      }
+      cats←⊃∘(,/)∘((⊂'')∘,)              ⍝ catenate zero or more strings
+      cats''∘four¨24 part 8 bits ⍵
+    }
+:EndClass

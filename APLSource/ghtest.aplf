@@ -1,0 +1,53 @@
+ghtest;config;client;callbackUrl;params;authUrl;result;code;tokenResult
+⍝ Create OAuth client
+config←(
+    client: (
+        id: 'YOUR_GITHUB_CLIENT_ID'
+        secret: 'YOUR_GITHUB_CLIENT_SECRET'
+    )
+    auth: (
+        authUrl: 'https://github.com/login/oauth/authorize'
+        tokenUrl: 'https://github.com/login/oauth/access_token'
+    )
+)
+client ← SOAC.New config
+
+⍝ Start temp jarvis server
+callbackUrl←client.LaunchCallbackServer 3000 ⍝ Starts Jarvis server on port 3000
+
+⍝ Generate authorization URL
+params←(
+    redirectUri: callbackUrl
+    scope: 'read:user'
+    custom: (
+        ⍝ Custom params to be passed (Will not be parsed)
+    )
+)
+authUrl ← client.AuthorizeURL params 
+
+⍝ Show URL to user
+⎕ ← 'Please visit: ', authUrl
+
+⍝ wait for code
+client.LaunchURL authUrl
+result ← client.AwaitCallback ⍝ Waits until callback received. Autostops the Jarvis server
+
+
+
+⍝ Check if successful
+:If result.success
+    code ← result.code
+
+    ⍝ Exchange code for token
+    tokenResult ← client.GetToken code callbackUrl
+
+    :If tokenResult.success
+        ⎕ ← 'Access Token: ', tokenResult.access_token
+        ⎕ ← 'Refresh Token: ', tokenResult.refresh_token
+        ⎕ ← 'Expires in: ', tokenResult.expires_in
+    :Else
+        ⎕ ← 'Token error: ', tokenResult.error_description
+    :EndIf
+:Else
+    ⎕ ← 'Authorization error: ', result.error_description
+:EndIf

@@ -1,0 +1,50 @@
+     deviceFlowTest;config;client;deviceResponse;verificationUrl;userCode;tokenResult
+     ⍝ Create OAuth client with device flow
+     config←(
+         client: (
+             id: 'YOUR_CLIENT_ID'
+             secret: 'YOUR_CLIENT_SECRET'
+             flow: 'deviceCode'
+         )
+         auth: (
+             authUrl: 'https://auth.example.com/oauth/authorize'
+             tokenUrl: 'https://auth.example.com/oauth/token'
+             deviceUrl: 'https://auth.example.com/oauth/device'
+         )
+     )
+     client ← SOAC.New config
+
+     ⍝ Initiate device authorization
+     deviceResponse ← client.InitiateDeviceFlow (scope: 'email' 'profile')
+
+     ⍝ Check if device flow initiation was successful
+     :If deviceResponse.success
+         verificationUrl ← deviceResponse.verification_uri
+         userCode ← deviceResponse.user_code
+
+         ⍝ Display instructions to user
+         ⎕ ← 'Please visit: ', verificationUrl
+         ⎕ ← 'And enter code: ', userCode
+         ⎕ ← ''
+         ⎕ ← 'Waiting for authorization...'
+
+         ⍝ Optionally launch the verification URL
+         client.LaunchURL verificationUrl
+
+         ⍝ Poll for token (will wait until user authorizes or times out)
+         params←(
+            deviceCode: deviceResponse.device_code
+            interval: deviceResponse.interval
+         )
+         tokenResult ← client.PollForToken params
+
+         :If tokenResult.success
+             ⎕ ← 'Access Token: ', tokenResult.access_token
+             ⎕ ← 'Refresh Token: ', tokenResult.refresh_token
+             ⎕ ← 'Expires in: ', tokenResult.expires_in
+         :Else
+             ⎕ ← 'Token error: ', tokenResult.error_description
+         :EndIf
+     :Else
+         ⎕ ← 'Device flow error: ', deviceResponse.error_description
+     :EndIf
