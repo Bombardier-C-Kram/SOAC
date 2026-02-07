@@ -1,9 +1,9 @@
 ghtest;config;client;callbackUrl;params;authResult;result;tokenResult
 ⍝ Create OAuth client using CommonProviders
-config←CommonProviders.GitHub 'authorizationCode'
+config←##.CommonProviders.GitHub 'authorizationCode'
 config.clientId←credentials.github.clientId
 config.clientSecret←credentials.github.clientSecret
-client ← SOAC.New config
+client ← ##.SOAC.New config
 
 ⍝ Start temp jarvis server
 callbackUrl←client.StartCallbackServer 3000 ⍝ Starts Jarvis server on port 3000

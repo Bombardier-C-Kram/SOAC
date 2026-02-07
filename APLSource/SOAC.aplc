@@ -380,9 +380,7 @@
         :EndIf
 
       :Case 'deviceCode'
-        deviceCode←args ⎕VGET 'deviceCode'
-        code←deviceCode  ⍝ Use deviceCode as code for backward compatibility in params
-
+        code←args ⎕VGET 'deviceCode'
       :Case 'clientCredentials'
         ⎕SIGNAL ⊂('EN' 11) ('Message' 'clientCredentials flow not yet implemented')
 
@@ -423,6 +421,65 @@
 
       :If usePKCE
         params.Params.code_verifier←codeVerifier
+      :EndIf
+
+      :Section Execute Request
+      h←HttpCommand.Do params
+      r←ProcessHttpResponse h
+    ∇
+
+
+    ∇ r←RefreshToken args;refreshToken;scope;params;h
+      ⍝ Exchange refresh token for new access token
+      ⍝
+      ⍝ Arguments:
+      ⍝   args.refreshToken - Refresh token from previous token response
+      ⍝   args.scope - (optional) Space-separated string or array of scope values
+      ⍝
+      ⍝ Returns:
+      ⍝   Namespace with token or error:
+      ⍝   On success: {success:1 access_token:'..' token_type:'..' expires_in:N refresh_token:'...' ...}
+      ⍝   On error: {success:0 error:'...' error_description:'...'}
+      :Access public
+
+      :Section Parse Arguments
+      ⍝ Validate args is a namespace
+      :If 9≠⊃⎕NC 'args'
+        ⎕SIGNAL ⊂('EN' 11) ('Message' 'RefreshToken requires namespace argument')
+      :EndIf
+
+      ⍝ Extract parameters
+      refreshToken←args ⎕VGET 'refreshToken'
+      :If refreshToken≡''
+        ⎕SIGNAL ⊂('EN' 5) ('Message' 'refreshToken is required')
+      :EndIf
+
+      scope←args ⎕VGET ⊂'scope' ''
+
+      :Section Build HTTP Request
+      ⍝ Build HTTP request parameters
+      params←(
+          URL: tokenUrl
+          Params:(
+              grant_type:'refresh_token'
+              refresh_token:refreshToken
+              client_id:clientId
+              client_secret:clientSecret
+          )
+          Method:'POST'
+          ContentType:'application/x-www-form-urlencoded'
+          TranslateData:1
+          Debug:0
+      )
+
+      ⍝ Remove client_secret if empty
+      :If params.Params.client_secret≡''
+        params.Params.⎕EX 'client_secret'
+      :EndIf
+
+      ⍝ Add scope if provided (allows narrowing permissions on refresh)
+      :If ~scope≡''
+        params.Params.scope←NormalizeScope scope
       :EndIf
 
       :Section Execute Request
