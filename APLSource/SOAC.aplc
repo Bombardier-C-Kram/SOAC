@@ -251,7 +251,7 @@
         :EndIf
 
         ⍝ Attempt to get token
-        r←GetToken deviceCode
+        r←GetToken (deviceCode:deviceCode)
 
         ⍝ Check if we got a token successfully
         :If r.success

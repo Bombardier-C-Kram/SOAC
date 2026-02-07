@@ -1,14 +1,9 @@
 deviceFlowTest;config;client;deviceResponse;verificationUrl;userCode;tokenResult
 ⍝ Create OAuth client with device flow (using flat configuration)
-config←(
-    clientId: 'YOUR_CLIENT_ID'
-    clientSecret: 'YOUR_CLIENT_SECRET'
-    flow: 'deviceCode'
-    authUrl: 'https://auth.example.com/oauth/authorize'
-    tokenUrl: 'https://auth.example.com/oauth/token'
-    deviceUrl: 'https://auth.example.com/oauth/device'
-)
-client ← SOAC.New config
+config←##.CommonProviders.GitHub 'deviceCode'
+config.clientId←credentials.github.clientId
+config.clientSecret←credentials.github.clientSecret
+client ← ##.SOAC.New config
 
 ⍝ Start device authorization flow
 deviceResponse ← client.StartDeviceFlow (scope: 'email' 'profile')
@@ -30,7 +25,7 @@ deviceResponse ← client.StartDeviceFlow (scope: 'email' 'profile')
     ⍝ Wait for token (will wait until user authorizes or times out)
     params←(
     deviceCode: deviceResponse.device_code
-    interval: deviceResponse.interval
+    interval: 2⊃⎕VFI deviceResponse.interval
     )
     tokenResult ← client.WaitForToken params
 

@@ -15,8 +15,10 @@
           tokenUrl: 'https://github.com/login/oauth/access_token'
           deviceUrl: 'https://github.com/login/device/code'
           flow: flow
-          usePKCE: 1
       )
+      :If flow≡'authorizationCode'
+        r.usePKCE←1
+      :EndIf
     ∇
 
     ∇ r←Google flow
@@ -33,8 +35,10 @@
           tokenUrl: 'https://oauth2.googleapis.com/token'
           deviceUrl: 'https://oauth2.googleapis.com/device/code'
           flow: flow
-          usePKCE: 1
       )
+      :If flow≡'authorizationCode'
+        r.usePKCE←1
+      :EndIf
     ∇
 
     ∇ r←Microsoft flow
