@@ -382,8 +382,7 @@
       :Case 'deviceCode'
         code←args ⎕VGET 'deviceCode'
       :Case 'clientCredentials'
-        ⎕SIGNAL ⊂('EN' 11) ('Message' 'clientCredentials flow not yet implemented')
-
+          ⍝ Do nothing        
       :Else
         ⎕SIGNAL ⊂('EN' 11) ('Message' 'No flow specified')
       :EndSelect
@@ -417,6 +416,8 @@
       :Case 'deviceCode'
         params.Params.device_code←code
         params.Params.grant_type←'urn:ietf:params:oauth:grant-type:device_code'
+      :Case 'clientCredentials'
+        params.Params.grant_type←'client_credentials'
       :EndSelect
 
       :If usePKCE

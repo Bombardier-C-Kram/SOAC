@@ -16,13 +16,13 @@ This project is currently in development. Core functionality is implemented but 
 - Token exchange
 - State validation for CSRF protection
 - GitHub OAuth integration (example provided)
-
-### In Progress / Planned
 - Client Credentials flow
 - Token refresh logic
+
+
+### In Progress / Planned
 - JWT parsing and validation
 - Comprehensive documentation and examples
-- Error handling improvements
 
 ## Installation
 
@@ -236,10 +236,7 @@ This project is in active development. If you encounter issues or have suggestio
 ## Roadmap
 
 **Upcoming Features:**
-- Token refresh functionality
 - JWT parsing and signature validation
-- Provider helpers (Google, Microsoft, Auth0)
-- Client Credentials flow completion
 - Comprehensive test suite
 - More usage examples
 
